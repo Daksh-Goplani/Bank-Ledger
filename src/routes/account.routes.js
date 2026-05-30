@@ -9,7 +9,7 @@ const router = express.Router()
  * - Create a new account
  * - Protected Route (valid token needed)
  */
-router.post('/accounts', authMiddleware.authMiddleware, accountControl.createAccountController)
+router.post('/', authMiddleware.authMiddleware, accountControl.createAccountController)
 
 
 module.exports = router
