@@ -84,40 +84,49 @@ async function createTransaction(req, res) {
             message: `Insufficient balance. Current balance ${balance}. Requested amount ${amount}`
         })
     }
+    let transaction
+    try {
+        /**
+         * 5. Create Transaction (PENDING)
+         */
+        const session = await mongoose.startSession()
+        session.startTransaction()
 
-    /**
-     * 5. Create Transaction (PENDING)
-     */
-    const session = await mongoose.startSession()
-    session.startTransaction()
+        const transaction = (await transactionModel.create([{
+            fromAccount,
+            toAccount,
+            amount,
+            idempotencyKey,
+            status: "PENDING"
+        }], { session }))[0]
 
-    const transaction = await transactionModel.create({
-        fromAccount,
-        toAccount,
-        amount,
-        idempotencyKey,
-        status: "PENDING"
-    }, { session })
+        const debitLedgerEntry = await ledgerModel.create([{
+            account: fromAccount,
+            amount: amount,
+            transaction: transaction._id,
+            type: 'DEBIT'
+        }], { session })
 
-    const debitLedgerEntry = await ledgerModel.create({
-        account: fromAccount,
-        amount: amount,
-        transaction: transaction._id,
-        type: 'DEBIT'
-    }, { session })
+        const creditLedgerEntry = await ledgerModel.create([{
+            account: toAccount,
+            amount: amount,
+            transaction: transaction._id,
+            type: 'CREDIT'
+        }], { session })
 
-    const creditLedgerEntry = await ledgerModel.create({
-        account: toAccount,
-        amount: amount,
-        transaction: transaction._id,
-        type: 'CREDIT'
-    }, { session })
+        await transactionModel.findOneAndUpdate(
+            { _id: transaction._id },
+            { status: "COMPLETED" },
+            { session }
+        )
 
-    transaction.status = 'COMPLETED'
-    await transaction.save({ session })
-
-    await session.commitTransaction()
-    session.endSession()
+        await session.commitTransaction()
+        session.endSession()
+    } catch (err) {
+        return res.status(400).json({
+            message:"Transacion is pending due to some issue please retry after sometime"
+        })
+    }
 
     /**
      * 10. Send Email Notification
@@ -185,9 +194,9 @@ async function createInitialFundsTransaction(req, res) {
 
     await session.commitTransaction()
     session.endSession()
-    
+
     return res.status(201).json({
-        message:"Initial funds transaction completed success",
+        message: "Initial funds transaction completed success",
         transaction: transaction
     })
 }
